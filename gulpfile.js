@@ -16,7 +16,6 @@ let rename = require("gulp-rename");
 let imagemin = require("gulp-imagemin");
 let svgmin = require("gulp-svgmin");
 let svgsprite = require('gulp-svg-sprite');
-let run = require("run-sequence").use(gulp);
 let del = require("del");
 let jsmin = require("gulp-uglify");
 let htmlimport = require('gulp-html-import');
@@ -40,7 +39,7 @@ gulp.task("copyAssets", function () {
 		"assets/js/*.js",
 		"assets/css/*.css",
 		"assets/fonts/*.{woff,woff2,otf,ttf}",
-		"assets/img/*.{png,jpg,gif,jpeg,svg}"
+		"assets/img/**/*.{png,jpg,gif,jpeg,svg}"
 	])
 	.pipe(copy('build', {
 		prefix: 1
@@ -59,30 +58,69 @@ gulp.task("copybemimages", function () {
 });
 
 
+// Копировать scss БЭМ-блоков в styles/blocks
+gulp.task("copyBlockSCSS", function () {
+	return gulp.src(['blocks/**/*.scss'])
+	.pipe(replace("../../assets/styles/", "../../"))
+	.pipe(gulp.dest('assets/styles/blocks/'));
+});
+
+
+// minifies compiled script.js in build (rename to script.min.js)
+gulp.task("jsmin", function () {
+	return gulp.src("build/js/script.js")
+	.pipe(babel({
+		presets: ['@babel/env']
+	}))
+	.pipe(jsmin())
+	.pipe(rename("script.min.js"))
+	.pipe(gulp.dest("build/js"))
+	.pipe(server.reload({stream: true}));
+});
+
+
 // concats separate js for blocks into assets/js/script.js
 gulp.task('concat', function () {
-	return gulp.src('blocks/**/*.js')
+	return gulp.src(['blocks/**/*.js', 'assets/js/script.js'])
 	.pipe(concat('script.js'))
 	.pipe(babel({
 		presets: ['@babel/env']
 	}))
-	.pipe(gulp.dest('assets/js/'));
+	.pipe(gulp.dest('build/js/'));
+});
+
+
+// concats and minify all js vendors of gulp.src below
+gulp.task('concat-vendors', function () {
+	return gulp.src(['build/js/jquery-3.2.1.min.js', 'build/js/jquery.lazy.min.js'])
+	.pipe(babel({
+		presets: ['@babel/env']
+	}))
+	.pipe(concat('script.min.js'))
+	.pipe(jsmin({
+		output: {
+			comments: true
+		}
+	}))
+	.pipe(gulp.dest('build/js/'));
 });
 
 
 // imports html of bem-blocks into pages
 // then copies html-pages into build
 gulp.task('htmlimport', function () {
-	gulp.src('pages/*.html')
+	del("build/**/*.html");
+	return gulp.src('pages/**/*.html')
 	.pipe(htmlimport('blocks/'))
 	.pipe(replace(/\n\s*<!--DEV[\s\S]+?-->/gm, ''))
-	.pipe(gulp.dest('build/'));
+	.pipe(gulp.dest('build/'))
+	.pipe(server.reload({stream: true}));
 });
 
 
 // beautifies html-pages in build
 gulp.task('htmlbeautify', function () {
-	gulp.src('build/*.html')
+	return gulp.src('build/**/*.html')
 	.pipe(htmlbeautify({
 		"indent_size": 2
 	}))
@@ -92,23 +130,15 @@ gulp.task('htmlbeautify', function () {
 
 // compiles main scss in css
 // then puts minified css into build/css
-// ON LINE 112: use "sort: sortCSSmq.desktopFirst" if dekstop first project or "sort: sortCSSmq" if mobile first
+// ON LINE 132: use "sort: sortCSSmq.desktopFirst" if dekstop first project or "sort: sortCSSmq" if mobile first
 gulp.task("style", function () {
-	gulp.src("assets/styles/style.scss")
+	return gulp.src("assets/styles/style.scss")
 	.pipe(wait(200))
 	.pipe(plumber())
 	.pipe(sourcemaps.init())
 	.pipe(sass())
 	.pipe(postcss([
-		autoprefixer({
-			browsers: [
-				"last 4 version",
-				"last 4 Chrome versions",
-				"last 4 Firefox versions",
-				"last 4 Opera versions",
-				"last 4 Edge versions"
-			]
-		}),
+		autoprefixer(),
 		mqpacker({
 			sort: sortCSSmq.desktopFirst
 		})
@@ -125,20 +155,12 @@ gulp.task("style", function () {
 // compiles main scss in css
 // then puts minified css into build/css WITHOUT SOURCEMAP
 gulp.task("style-prod", function () {
-	gulp.src("assets/styles/style.scss")
+	return gulp.src("assets/styles/style.scss")
 	.pipe(wait(200))
 	.pipe(plumber())
 	.pipe(sass())
 	.pipe(postcss([
-		autoprefixer({
-			browsers: [
-				"last 4 version",
-				"last 4 Chrome versions",
-				"last 4 Firefox versions",
-				"last 4 Opera versions",
-				"last 4 Edge versions"
-			]
-		}),
+		autoprefixer(),
 		mqpacker({
 			sort: sortCSSmq.desktopFirst
 		})
@@ -152,34 +174,17 @@ gulp.task("style-prod", function () {
 
 // compiles blocks scss in css separately
 // then puts minified css into build/blocks-css
-gulp.task('block-css', function() {
+gulp.task('block-css', function () {
 	return gulp.src('blocks/**/*.scss')
 	.pipe(sass())
 	.pipe(postcss([
-		autoprefixer({
-			browsers: [
-				"last 4 version",
-				"last 4 Chrome versions",
-				"last 4 Firefox versions",
-				"last 4 Opera versions",
-				"last 4 Edge versions"
-			]
-		}),
+		autoprefixer(),
 		mqpacker({
 			sort: sortCSSmq.desktopFirst
 		})
 	]))
 	.pipe(minify())
 	.pipe(gulp.dest('build/blocks-css'))
-});
-
-
-// minifies compiled script.js in build (rename to script.min.js)
-gulp.task("jsmin", function () {
-	return gulp.src("assets/js/script.js")
-	.pipe(jsmin())
-	.pipe(rename("script.min.js"))
-	.pipe(gulp.dest("build/js"));
 });
 
 
@@ -190,7 +195,7 @@ gulp.task("images", function () {
 		imagemin.optipng({
 			optimizationLevel: 5
 		}),
-		imagemin.jpegtran({
+		imagemin.mozjpeg({
 			progressive: true
 		})
 	]))
@@ -221,7 +226,7 @@ let svgConfig = {
 	mode: {
 		view: { // Makes scss-sprite
 			dest: ".",
-			sprite : "build/img/svgsprite.css.svg",
+			sprite: "build/img/svgsprite.css.svg",
 			bust: false,
 			prefix: "._svg-icon-%s",
 			render: {
@@ -245,31 +250,23 @@ gulp.task("svgsprite", function () {
 
 
 // serve styles from build
-gulp.task("watch", ["style"], function () {
+gulp.task("watch", gulp.series("style", "concat", "jsmin", "htmlimport", function () {
 	server.init({
-		server: "build",
+		server: "build/",
 		notify: false,
 		open: true,
 		ui: false
 	});
 
-	gulp.watch(["assets/styles/**/*.{scss,sass}", "blocks/**/*.{scss,sass}"], ["style"]);
-	gulp.watch(["./pages/*.html", "./blocks/**/*.html"]).on("change", function () {
-		del("build/*.html");
-		run("htmlimport");
-		server.reload();
-	});
-	gulp.watch("blocks/**/*.js").on("change", function () {
-		del("build/js/script.min.js");
-		run("concat","jsmin");
-		server.reload();
-	});
-});
+	gulp.watch(["assets/styles/**/*.{scss,sass}", "blocks/**/*.{scss,sass}"], gulp.series("style"));
+	gulp.watch(["assets/js/script.js", "blocks/**/*.js"], gulp.series("concat", "jsmin"));
+	gulp.watch(["./pages/**/*.html", "./blocks/**/*.html"], gulp.series("htmlimport"));
+}));
 
 
 // inline critical CSS for first screen into head
 gulp.task("criticalCSS", function () {
-	critical.generate({
+	return critical.generate({
 		inline: true,
 		base: 'build/',
 		src: 'index.html',
@@ -287,19 +284,19 @@ gulp.task("criticalCSS", function () {
 				width: 1280,
 				height: 768,
 			},
+			{
+				width: 1920,
+				height: 1024,
+			}
 		],
 	});
 });
 
 
 //start
-gulp.task("serve", function () {
-	run("clean", "concat", "htmlimport", "htmlbeautify", "copyAssets", "copybemimages", "jsmin", "svgsprite", "style", "watch" /*, "images", "svgimages"*/)
-});
+gulp.task("serve", gulp.series("clean", "concat", "htmlimport", "htmlbeautify", "copyAssets", "copybemimages", "jsmin", "svgsprite", "style", "watch" /*, "images", "svgimages"*/));
 
 
 // build
-gulp.task("build", function () {
-	run("clean", "concat", "htmlimport", "htmlbeautify", "style-prod", "copyAssets", "copybemimages", "jsmin", "svgsprite", "images", "svgimages", "criticalCSS")
-});
+gulp.task("build", gulp.series("clean", "htmlimport", "htmlbeautify", "copyAssets", "copybemimages", "concat", "jsmin", "svgsprite", "style-prod", "images", "svgimages"));
 
